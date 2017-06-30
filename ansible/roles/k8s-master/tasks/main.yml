@@ -1,0 +1,63 @@
+---
+
+# Here we initialise the cluster with Kubeadm. We add the token manually so that we
+# know its value when we initialise our nodes. We add --api-advertise-addresses manually
+# because by default Kubeadm would choose the nat IP we get from Virtualbox, which is not good.
+- name:    Initialise Kubernetes Cluster
+  become:  true
+  shell:   kubeadm init --token="{{ kubeadm_token }}" --apiserver-advertise-address "{{ inventory_hostname }}" --kubernetes-version v1.6.6 --pod-network-cidr=10.244.0.0/16
+#  shell:   kubeadm init --token="{{ kubeadm_token }}" --apiserver-advertise-address "{{ inventory_hostname }}" --kubernetes-version v1.6.2 # for weave
+
+- name:    sudo cp /etc/kubernetes/admin.conf $HOME/
+  shell: >
+    sudo cp /etc/kubernetes/admin.conf $HOME/ && \
+    sudo chown $(id -u):$(id -g) $HOME/admin.conf && \
+    export KUBECONFIG=$HOME/admin.conf
+    
+# We install JQ for the next task
+#- name:    Install JQ
+#  become:  true
+#  apt:
+#    name:  jq
+#   state: present
+
+# The following is a workaround, explained in more details here :
+# https://github.com/kubernetes/kubernetes/issues/34101
+# We need to add 'userspace' as a proxy mode for kubeproxy, otherwise
+# the Kubernetes nodes can't reach all of the services (kube-dns)
+#- name:     Set --advertise-address flag in kube-apiserver static pod manifest
+#  become:   true
+#  shell: >
+#    jq '.spec.containers[0].command |= .+ ["--apiserver-advertise-address={{ inventory_hostname }}"]' \
+#       /etc/kubernetes/manifests/kube-apiserver.json > /tmp/kube-apiserver.json && \
+#       mv /tmp/kube-apiserver.json /etc/kubernetes/manifests/kube-apiserver.json
+       
+#- name:    Add --proxy-mode=userspace to to kube-proxy component
+#  become:  true
+#  shell: >
+#    kubectl -n kube-system get ds -l 'component=kube-proxy' -o json \
+#      | jq '.items[0].spec.template.spec.containers[0].command |= .+ ["--proxy-mode=userspace"]' \
+#      |   kubectl apply -f - && kubectl -n kube-system delete pods -l 'component=kube-proxy'
+
+# Finally we install Weave Network for Kubernetes 
+#- name:    Install Weave
+#  become:  true
+#  shell:   kubectl apply -f https://git.io/weave-kube
+
+#- name:     Install Flannel
+#  becmoe:   true
+#  shell:    kubectl apply -f https://github.com/coreos/flannel/raw/master/Documentation/kube-flannel.yml
+
+- name: Ensure Network Start Script
+  become: yes
+  copy:
+    src: files/{{ item }}
+    dest: /usr/local/bin/{{ item }}
+    owner: root
+    group: root
+    mode: 0755
+  with_items:
+    - "start-weave"
+    - "start-calico"
+    - "start-canal"
+    - "start-dashboard"
